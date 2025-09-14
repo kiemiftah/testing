@@ -1,0 +1,467 @@
+# Modify the provided HTML to include iOS-safe ASR handling (no duplicates) and save as a new .txt file
+modified = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>🎤 Idiom Speaking Coach — AI (ASR + Feedback)</title>
+  <style>
+    :root {
+      --primary:#3498db; --primary-dark:#2980b9; --secondary:#2ecc71; --dark:#2c3e50; --light:#ecf0f1; --gray:#95a5a6;
+    }
+    *{box-sizing:border-box}
+    body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f8f9fa;margin:0;color:#333}
+    .container{max-width:960px;margin:0 auto;padding:24px}
+    header{text-align:center;margin:24px 0 12px}
+    h1{font-size:2.2rem;margin:0 0 6px}
+    .sub{color:#6b7280;margin:0}
+    .badge{display:inline-flex;gap:8px;align-items:center;background:#eef6ff;border:1px solid #cfe3ff;color:#1e66b8;padding:6px 10px;border-radius:999px;font-size:.9rem;margin-top:10px}
+    .row{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:880px){.row{grid-template-columns:1.1fr .9fr}}
+    .card{background:#fff;border-radius:16px;box-shadow:0 5px 15px rgba(0,0,0,.08);padding:20px;border:2px solid #f1f5f9}
+    label{font-weight:600;display:block;margin-bottom:6px}
+    select,input[type=text]{width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid #dbe2ea;font-size:1rem}
+    .controls{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .controls .wide{grid-column:span 3}
+    .btn{background:var(--primary);color:#fff;border:none;border-radius:10px;padding:12px 14px;font-size:1rem;cursor:pointer;transition:.2s}
+    .btn:hover{background:var(--primary-dark)}
+    .btn.ghost{background:#f0f4f8;color:#0f172a;border:1px solid #e2e8f0}
+    .inline{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .status{font-size:.95rem;color:#64748b}
+    .meter{height:15px;width:560px;background:#eef2f7;border-radius:999px;overflow:hidden}
+    .meter>span{display:block;height:100%;width:0;background:#22c55e;transition:width .3s}
+    .tag{display:inline-block;padding:4px 8px;border-radius:999px;font-size:.8rem;border:1px solid #e2e8f0;background:#f8fafc;color:#0f172a}
+    .tag.good{border-color:#bbf7d0;background:#ecfdf5;color:#065f46}
+    .tag.mid{border-color:#fde68a;background:#fffbeb;color:#92400e}
+    .tag.bad{border-color:#fecaca;background:#fef2f2;color:#7f1d1d}
+    .muted{color:#6b7280}
+    .transcript{min-height:56px;border:1.5px dashed #dbe2ea;border-radius:10px;padding:10px}
+    footer{text-align:center;color:#94a3b8;margin:28px 0}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎤 Idiom Speaking Coach</h1>
+      <p class="sub">Say a full sentence using the target idiom. The page uses your browser's <strong>speech recognition (ASR)</strong> to transcribe and an <strong>AI rubric</strong> to score usage and give feedback.</p>
+      <div class="badge">AI Mode: On-device ASR (Web Speech API) + Heuristic Usage Scoring</div>
+    </header>
+
+    <div class="row">
+      <div class="card">
+        <div class="controls">
+          <div>
+            <label for="level">CEFR level</label>
+            <select id="level">
+              <option value="">All levels</option>
+              <option value="A1">A1 Beginner</option>
+              <option value="A2">A2 Elementary</option>
+              <option value="B1">B1 Intermediate</option>
+              <option value="B2">B2 Upper-Intermediate</option>
+              <option value="C1">C1 Advanced</option>
+              <option value="C2">C2 Proficient</option>
+            </select>
+          </div>
+          <div>
+            <label for="idiom">Target idiom</label>
+            <select id="idiom"></select>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button id="randomBtn" class="btn ghost" title="Pick a random idiom">🎲 Random</button>
+          </div>
+          <div class="wide">
+            <label>Prompt</label>
+            <div id="prompt" class="muted">Use the idiom naturally in a complete sentence. Example: "He told a joke to break the ice at the meeting."</div>
+          </div>
+        </div>
+
+        <div class="inline" style="margin-top:12px">
+          <button id="startBtn" class="btn">▶️ Start speaking</button>
+          <button id="stopBtn" class="btn ghost">⏹ Stop</button>
+          <button id="clearBtn" class="btn ghost">🧹 Clear</button>
+          <span id="micStatus" class="status">Mic idle.</span>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>Transcript</label>
+          <div id="transcript" class="transcript muted"></div>
+        </div>
+
+        <div style="margin-top:12px" class="inline">
+          <div>
+            <div class="muted">Score</div>
+            <div class="meter" title="Overall score"><span id="scoreBar"></span></div>
+          </div>
+          <div class="muted">WPM: <span id="wpm">0</span></div>
+          <div class="muted">Confidence: <span id="conf">–</span></div>
+        </div>
+
+        <div id="feedback" style="margin-top:12px"></div>
+        <div class="inline" style="margin-top:12px">
+          <button id="ttsGood" class="btn ghost">🔊 Model answer</button>
+          <button id="retry" class="btn">🔁 Try again</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">How we score (explainable AI)</h3>
+        <div class="muted">
+          <div><strong>Phrase use (60%)</strong>: Did you actually say the idiom (or a close variant)?</div>
+          <div><strong>Context (25%)</strong>: Are there context words that fit the idiom’s meaning?</div>
+          <div><strong>Fluency (10%)</strong>: Sentence length and smooth pace (100–160 wpm ideal).</div>
+          <div><strong>ASR confidence (5%)</strong>: Recognition reliability.</div>
+        </div>
+        <p class="muted">All processing is local to your browser. If recognition doesn’t start, check your mic permissions or try Chrome/Edge desktop (best support).</p>
+        <hr style="border:none;border-top:1px solid #eef2f7;margin:14px 0" />
+        <h4>Return to hub</h4>
+        <button class="btn ghost" onclick="location.href='idiomhomepage.html'">← Idiom Games Hub</button>
+      </div>
+    </div>
+
+    <footer>
+      Created by Affiq Azlan • Faculty of Language Studies and Human Development • Universiti Malaysia Kelantan
+    </footer>
+  </div>
+
+  <script>
+    // ---------- Idiom data (short demo list — replace with your 120) ----------
+    const BANK = [
+      { id:"A1_01", level:"A1", text:"hit the books", meaning:"study very hard",
+        contexts:["study","exam","test","library","revising","homework","deadline","university","school"],
+        modelAnswer:"Finals are next week, so I have to hit the books tonight." },
+      { id:"A1_02", level:"A1", text:"under the weather", meaning:"feeling sick",
+        contexts:["ill","flu","cold","fever","rest","doctor","stay home","sick day"],
+        modelAnswer:"I’m a bit under the weather today, so I’ll skip the meeting." },
+      { id:"A1_03", level:"A1", text:"a piece of cake", meaning:"very easy",
+        contexts:["easy","simple","test","task","homework","quiz","beginner","basic"],
+        modelAnswer:"That math quiz was a piece of cake for me." },
+      { id:"A1_04", level:"A1", text:"in hot water", meaning:"in trouble",
+        contexts:["trouble","mistake","late","rule","boss","teacher","scold","problem"],
+        modelAnswer:"He forgot the report, so he’s in hot water with the boss." },
+      { id:"A1_05", level:"A1", text:"on cloud nine", meaning:"very happy",
+        contexts:["happy","excited","good news","win","celebrate","success","smile"],
+        modelAnswer:"She was on cloud nine after getting the scholarship." },
+      { id:"A1_06", level:"A1", text:"a big fish in a small pond", meaning:"an important person in a small group",
+        contexts:["small town","local","school","club","small company","status","famous"],
+        modelAnswer:"He’s a big fish in a small pond at his local club." },
+      { id:"A1_07", level:"A1", text:"cold feet", meaning:"nervous before doing something",
+        contexts:["nervous","wedding","speech","exam","performance","stage fright","last minute"],
+        modelAnswer:"I got cold feet before my first live presentation." },
+      { id:"A1_08", level:"A1", text:"call it a day", meaning:"stop working for the day",
+        contexts:["finish","end","work","late","tired","project","shift","clock out"],
+        modelAnswer:"We’ve done enough—let’s call it a day and continue tomorrow." },
+      { id:"A1_09", level:"A1", text:"as easy as abc", meaning:"very simple",
+        contexts:["simple","beginner","steps","guide","tutorial","kids","basic","learn"],
+        modelAnswer:"Setting up the app is as easy as ABC." },
+      { id:"A1_10", level:"A1", text:"once in a blue moon", meaning:"very rarely",
+        contexts:["rare","occasionally","seldom","hardly ever","special","event"],
+        modelAnswer:"We eat out together once in a blue moon." },
+      { id:"A1_11", level:"A1", text:"keep an eye on", meaning:"watch something carefully",
+        contexts:["watch","monitor","look after","guard","child","bag","stove","pet","safety"],
+        modelAnswer:"Can you keep an eye on my bag while I buy tickets?" },
+      { id:"A1_12", level:"A1", text:"it’s not my cup of tea", meaning:"not something you like",
+        contexts:["preference","taste","hobby","music","food","movie","choose","decline"],
+        modelAnswer:"Thanks for the invite, but horror movies aren’t my cup of tea." },
+      { id:"A1_13", level:"A1", text:"over the moon", meaning:"very happy",
+        contexts:["joy","celebration","good news","achievement","proud","smile"],
+        modelAnswer:"My parents were over the moon when I passed the exam." },
+      { id:"A1_14", level:"A1", text:"a hot potato", meaning:"a difficult issue",
+        contexts:["controversial","topic","argument","politics","decision","avoid","sensitive"],
+        modelAnswer:"The new policy is a hot potato at the office." },
+      { id:"A1_15", level:"A1", text:"time flies", meaning:"time passes quickly",
+        contexts:["fast","busy","fun","holiday","semester","deadline","weekend"],
+        modelAnswer:"Time flies when you’re having fun with friends." },
+      { id:"A1_16", level:"A1", text:"full of beans", meaning:"very energetic",
+        contexts:["energy","active","kids","play","morning","lively","hype","sport"],
+        modelAnswer:"The children were full of beans after the birthday cake." },
+      { id:"A1_17", level:"A1", text:"in black and white", meaning:"written clearly",
+        contexts:["written","contract","agreement","rules","policy","proof","document"],
+        modelAnswer:"Make sure the terms are in black and white before you sign." },
+      { id:"A1_18", level:"A1", text:"no pain no gain", meaning:"you must work hard to succeed",
+        contexts:["effort","exercise","training","practice","study","discipline","progress"],
+        modelAnswer:"I’m training every day—no pain, no gain!" },
+      { id:"A1_19", level:"A1", text:"the early bird catches the worm", meaning:"people who start early succeed",
+        contexts:["wake up","morning","arrive early","line","opportunity","head start"],
+        modelAnswer:"Let’s leave at 6 a.m.—the early bird catches the worm." },
+      { id:"A1_20", level:"A1", text:"break the ice", meaning:"start a conversation",
+        contexts:["introduce","meeting","first day","orientation","networking","awkward","talk"],
+        modelAnswer:"I used a quick game to break the ice with the new class." },
+      { id:"A2_01", level:"A2", text:"let the cat out of the bag", meaning:"reveal a secret",
+        contexts:["secret","surprise","accidentally","reveal","confess","birthday","plan","truth","spill"],
+        modelAnswer:"Mira let the cat out of the bag and told him about the surprise trip." },
+      { id:"A2_02", level:"A2", text:"hit the nail on the head", meaning:"be exactly right",
+        contexts:["exact","correct","point","answer","diagnose","identify","problem","summarize","spot on"],
+        modelAnswer:"When you said we need clearer instructions, you hit the nail on the head." },
+      { id:"A2_03", level:"A2", text:"the ball is in your court", meaning:"it's your decision",
+        contexts:["decision","your turn","reply","responsibility","choose","next step","respond","action","deadline"],
+        modelAnswer:"I’ve sent the options, so the ball is in your court now." },
+      { id:"A2_04", level:"A2", text:"when pigs fly", meaning:"something will never happen",
+        contexts:["impossible","never","unrealistic","joke","sarcasm","promise","unlikely","dream","fantasy"],
+        modelAnswer:"He says he’ll clean his room when pigs fly." },
+      { id:"A2_05", level:"A2", text:"cry over spilled milk", meaning:"be upset about something that can’t be changed",
+        contexts:["regret","past","mistake","move on","lesson","accept","too late","accident","waste time"],
+        modelAnswer:"We missed the bus—no use crying over spilled milk; let’s book a Grab." },
+      { id:"A2_06", level:"A2", text:"get cold feet", meaning:"become nervous",
+        contexts:["nervous","wedding","presentation","exam","performance","back out","last minute","stage fright","anxious"],
+        modelAnswer:"He got cold feet and canceled the interview." },
+      { id:"A2_07", level:"A2", text:"kill two birds with one stone", meaning:"achieve two things at once",
+        contexts:["efficient","time","task","plan","save","combine","errands","productivity","smart"],
+        modelAnswer:"I’ll visit grandma and shop nearby—kill two birds with one stone." },
+      { id:"A2_08", level:"A2", text:"barking up the wrong tree", meaning:"accuse the wrong person or follow a wrong idea",
+        contexts:["mistake","blame","assumption","evidence","investigate","misunderstand","suspect","wrong lead","error"],
+        modelAnswer:"If you think I broke the vase, you’re barking up the wrong tree." },
+      { id:"A2_09", level:"A2", text:"it’s a small world", meaning:"meeting someone unexpectedly",
+        contexts:["coincidence","chance","unexpected","meet","travel","old friend","surprise","connection","fate"],
+        modelAnswer:"I met my primary school teacher in Tokyo—it’s a small world!" },
+      { id:"A2_10", level:"A2", text:"in the same boat", meaning:"in the same situation",
+        contexts:["together","shared problem","group","team","classmates","deadline","exam","struggle","support"],
+        modelAnswer:"Don’t worry; we’re all in the same boat with this assignment." },
+      { id:"A2_11", level:"A2", text:"burn the candle at both ends", meaning:"work too hard for too long",
+        contexts:["overwork","late night","early morning","tired","exhausted","busy","stress","schedule","rest"],
+        modelAnswer:"You’re burning the candle at both ends—take a break tonight." },
+      { id:"A2_12", level:"A2", text:"pull someone’s leg", meaning:"joke with someone",
+        contexts:["joke","tease","prank","funny","not serious","trick","laugh","friends","playful"],
+        modelAnswer:"Relax, I’m just pulling your leg; the quiz is next week." },
+      { id:"A2_13", level:"A2", text:"bite your tongue", meaning:"stop yourself from speaking",
+        contexts:["self-control","hold back","avoid argument","polite","keep quiet","regret","angry","comment","silence"],
+        modelAnswer:"I wanted to complain, but I bit my tongue and smiled." },
+      { id:"A2_14", level:"A2", text:"on thin ice", meaning:"in a risky situation",
+        contexts:["risk","danger","warning","rules","punishment","boss","teacher","deadline","careful"],
+        modelAnswer:"You’re on thin ice after missing two practices." },
+      { id:"A2_15", level:"A2", text:"the last straw", meaning:"the final problem that causes a reaction",
+        contexts:["final","limit","patience","angry","quit","enough","problem","build up","trigger"],
+        modelAnswer:"The loud music at midnight was the last straw for the neighbors." },
+      { id:"A2_16", level:"A2", text:"a leopard can’t change its spots", meaning:"people don’t change",
+        contexts:["character","habit","personality","trust","warning","predictable","same behavior","history","skeptical"],
+        modelAnswer:"He promised to be punctual, but a leopard can’t change its spots." },
+      { id:"A2_17", level:"A2", text:"break a leg", meaning:"good luck",
+        contexts:["wish","performance","exam","competition","audition","support","encourage","theatre","before start"],
+        modelAnswer:"Break a leg on your debate tomorrow!" },
+      { id:"A2_18", level:"A2", text:"don’t put all your eggs in one basket", meaning:"don’t risk everything in one place",
+        contexts:["risk","investment","plan B","backup","diversify","save","apply","strategy","options"],
+        modelAnswer:"Apply to several universities—don’t put all your eggs in one basket." },
+      { id:"A2_19", level:"A2", text:"keep your chin up", meaning:"stay positive",
+        contexts:["encourage","hope","motivation","tough times","support","comfort","confidence","optimism","smile"],
+        modelAnswer:"Keep your chin up; the results aren’t everything." },
+      { id:"A2_20", level:"A2", text:"sit on the fence", meaning:"not decide",
+        contexts:["undecided","neutral","choose","debate","opinion","delay","avoid","both sides","hesitate"],
+        modelAnswer:"You can’t sit on the fence forever—pick a topic for your essay." },
+      { id:"B1_01", level:"B1", text:"cost an arm and a leg", meaning:"to be very expensive",
+        contexts:["expensive","price","luxury","money","pay","shopping","holiday","save"],
+        modelAnswer:"That car cost an arm and a leg, but he really wanted it." },
+      { id:"B1_02", level:"B1", text:"actions speak louder than words", meaning:"what you do is more important than what you say",
+        contexts:["promise","behavior","trust","prove","example","follow through","show","do"],
+        modelAnswer:"He never promised much, but his actions speak louder than words." },
+      { id:"B1_03", level:"B1", text:"beat around the bush", meaning:"avoid saying something directly",
+        contexts:["avoid","hesitate","direct","truth","conversation","delay","excuse","explain"],
+        modelAnswer:"Stop beating around the bush and tell me what happened." },
+      { id:"B1_04", level:"B1", text:"blessing in disguise", meaning:"something good that isn’t recognized at first",
+        contexts:["unexpected","hidden good","luck","positive","surprise","event","turnout"],
+        modelAnswer:"Losing that job was a blessing in disguise; I found a better one." },
+      { id:"B1_05", level:"B1", text:"get your act together", meaning:"organize yourself and your tasks",
+        contexts:["organize","focus","improve","discipline","plan","work","task","manage"],
+        modelAnswer:"You need to get your act together if you want to pass the exam." },
+      { id:"B1_06", level:"B1", text:"hit the sack", meaning:"to go to bed",
+        contexts:["sleep","bed","tired","night","rest","exhausted","early","late"],
+        modelAnswer:"I’m exhausted after the hike, so I’ll hit the sack early." },
+      { id:"B1_07", level:"B1", text:"jump the gun", meaning:"do something too soon",
+        contexts:["early","too soon","rush","mistake","decision","competition","start"],
+        modelAnswer:"She jumped the gun and announced the results before the meeting." },
+      { id:"B1_08", level:"B1", text:"put yourself in someone’s shoes", meaning:"imagine being in someone else’s situation",
+        contexts:["empathy","understand","perspective","situation","feel","consider","imagine"],
+        modelAnswer:"Try putting yourself in his shoes before judging him." },
+      { id:"B1_09", level:"B1", text:"stick to your guns", meaning:"maintain your position",
+        contexts:["opinion","decision","strong","resist","debate","confidence","stand firm"],
+        modelAnswer:"She stuck to her guns even when everyone disagreed." },
+      { id:"B1_10", level:"B1", text:"burn the midnight oil", meaning:"work late into the night",
+        contexts:["study","work","night","deadline","exam","assignment","tired","hard work"],
+        modelAnswer:"He burned the midnight oil to finish the project." },
+      { id:"B1_11", level:"B1", text:"speak of the devil", meaning:"when someone appears while being talked about",
+        contexts:["talk","mention","coincidence","appear","surprise","friend","arrive"],
+        modelAnswer:"Speak of the devil—there’s Sarah now!" },
+      { id:"B1_12", level:"B1", text:"the best of both worlds", meaning:"enjoy two benefits at once",
+        contexts:["advantage","balance","work-life","win","benefits","success","choice"],
+        modelAnswer:"Working from home gives me the best of both worlds—flexibility and income." },
+      { id:"B1_13", level:"B1", text:"throw in the towel", meaning:"to quit or give up",
+        contexts:["quit","surrender","defeat","competition","challenge","give up","stop"],
+        modelAnswer:"After several failed attempts, he threw in the towel." },
+      { id:"B1_14", level:"B1", text:"a storm in a teacup", meaning:"exaggerating a small problem",
+        contexts:["overreact","drama","small issue","exaggerate","trouble","unnecessary"],
+        modelAnswer:"Their argument was just a storm in a teacup." },
+      { id:"B1_15", level:"B1", text:"keep something at bay", meaning:"prevent something from coming near",
+        contexts:["prevent","control","hold off","avoid","problem","illness","stress","danger"],
+        modelAnswer:"He exercises daily to keep stress at bay." },
+      { id:"B1_16", level:"B1", text:"every cloud has a silver lining", meaning:"there is something good in every bad situation",
+        contexts:["hope","positive","optimism","lesson","good side","comfort","encourage"],
+        modelAnswer:"Losing the match was tough, but every cloud has a silver lining." },
+      { id:"B1_17", level:"B1", text:"add fuel to the fire", meaning:"make a problem worse",
+        contexts:["worse","argument","anger","escalate","problem","intensify","fight"],
+        modelAnswer:"His rude comment only added fuel to the fire." },
+      { id:"B1_18", level:"B1", text:"rule of thumb", meaning:"a general guideline",
+        contexts:["general","guideline","basic","principle","approximate","common sense"],
+        modelAnswer:"As a rule of thumb, drink eight glasses of water daily." },
+      { id:"B1_19", level:"B1", text:"not playing with a full deck", meaning:"someone who is mentally deficient",
+        contexts:["foolish","silly","crazy","not smart","odd","strange","unwise","slow"],
+        modelAnswer:"He believes the earth is flat—he’s not playing with a full deck." },
+      { id:"B1_20", level:"B1", text:"out of the blue", meaning:"unexpectedly",
+        contexts:["sudden","surprise","unexpected","shock","random","without warning","appear"],
+        modelAnswer:"She called me out of the blue after five years." },
+      { id:"B2_01", level:"B2", text:"put all your eggs in one basket", meaning:"to risk everything on a single plan",
+        contexts:["risk","investment","plan","gamble","business","decision","chance"],
+        modelAnswer:"He put all his eggs in one basket by investing in a single stock." },
+      { id:"B2_02", level:"B2", text:"by the skin of your teeth", meaning:"narrowly or barely succeeding",
+        contexts:["barely","just","escape","success","close call","luck","survive"],
+        modelAnswer:"I passed the driving test by the skin of my teeth." },
+      { id:"B2_03", level:"B2", text:"call the shots", meaning:"to be the one who makes the decisions",
+        contexts:["decision","leader","control","authority","power","responsibility"],
+        modelAnswer:"In this project, the manager calls the shots." },
+      { id:"B2_04", level:"B2", text:"cut corners", meaning:"to do something in the easiest or cheapest way",
+        contexts:["cheap","shortcut","poor quality","save money","rush","lazy"],
+        modelAnswer:"They cut corners on safety to finish the building quickly." },
+      { id:"B2_05", level:"B2", text:"give someone the benefit of the doubt", meaning:"to believe someone is innocent or telling the truth",
+        contexts:["trust","believe","innocent","truth","chance","forgive","understand"],
+        modelAnswer:"I didn’t see him do it, so I’ll give him the benefit of the doubt." },
+      { id:"B2_06", level:"B2", text:"go the extra mile", meaning:"to do more than is expected",
+        contexts:["effort","beyond","work hard","dedicated","helpful","success"],
+        modelAnswer:"The teacher always goes the extra mile for her students." },
+      { id:"B2_07", level:"B2", text:"jump on the bandwagon", meaning:"to adopt a popular trend",
+        contexts:["trend","popular","follow","join","movement","fashion","copy"],
+        modelAnswer:"Many companies jumped on the bandwagon of online shopping." },
+      { id:"B2_08", level:"B2", text:"leave no stone unturned", meaning:"to do everything possible to achieve a goal",
+        contexts:["effort","search","try","goal","persistence","determined"],
+        modelAnswer:"The police left no stone unturned in the investigation." },
+      { id:"B2_09", level:"B2", text:"let sleeping dogs lie", meaning:"don’t bring up old conflicts",
+        contexts:["conflict","past","argument","peace","quiet","avoid","ignore"],
+        modelAnswer:"I decided to let sleeping dogs lie and not mention the old fight." },
+      { id:"B2_10", level:"B2", text:"make a long story short", meaning:"to get to the point",
+        contexts:["explain","summary","shorten","quickly","tell","brief"],
+        modelAnswer:"To make a long story short, we missed the flight." },
+      { id:"B2_11", level:"B2", text:"read between the lines", meaning:"to understand a hidden meaning",
+        contexts:["hidden","meaning","imply","understand","interpret","subtle"],
+        modelAnswer:"If you read between the lines, you’ll see she’s unhappy." },
+      { id:"B2_12", level:"B2", text:"the tip of the iceberg", meaning:"a small part of a much bigger problem",
+        contexts:["small","hidden","problem","danger","surface","bigger issue"],
+        modelAnswer:"The budget cuts are just the tip of the iceberg." },
+      { id:"B2_13", level:"B2", text:"think outside the box", meaning:"to be creative",
+        contexts:["creative","ideas","innovative","different","solution","original"],
+        modelAnswer:"We need to think outside the box to solve this problem." },
+      { id:"B2_14", level:"B2", text:"get the ball rolling", meaning:"to start something",
+        contexts:["start","begin","action","initiate","move","project","plan"],
+        modelAnswer:"Let’s get the ball rolling with an introduction round." },
+      { id:"B2_15", level:"B2", text:"face the music", meaning:"to accept the consequences",
+        contexts:["accept","responsibility","punishment","truth","deal","reality"],
+        modelAnswer:"He failed the exam and had to face the music with his parents." },
+      { id:"B2_16", level:"B2", text:"bite off more than you can chew", meaning:"to take on too much",
+        contexts:["too much","overwork","responsibility","task","limit","stress"],
+        modelAnswer:"I bit off more than I could chew by joining three clubs." },
+      { id:"B2_17", level:"B2", text:"burn bridges", meaning:"to damage relationships permanently",
+        contexts:["relationship","end","quit","job","friendship","final","destroy"],
+        modelAnswer:"She burned her bridges when she insulted her boss." },
+      { id:"B2_18", level:"B2", text:"a dime a dozen", meaning:"very common and cheap",
+        contexts:["common","cheap","ordinary","plenty","not special","everywhere"],
+        modelAnswer:"Tourist shops sell souvenirs that are a dime a dozen." },
+      { id:"B2_19", level:"B2", text:"the elephant in the room", meaning:"an obvious problem everyone ignores",
+        contexts:["obvious","problem","ignore","avoid","discussion","awkward"],
+        modelAnswer:"His drinking problem is the elephant in the room." },
+      { id:"B2_20", level:"B2", text:"throw someone under the bus", meaning:"to betray someone for personal gain",
+        contexts:["betray","sacrifice","blame","selfish","protect","gain"],
+        modelAnswer:"He threw his colleague under the bus to impress the boss." },
+      { id:"C1_01", level:"C1", text:"throw in the towel", meaning:"to give up or stop trying",
+        contexts:["quit","give up","surrender","competition","defeat","fail","stop"],
+        modelAnswer:"After losing three games, the team threw in the towel." },
+      { id:"C1_02", level:"C1", text:"back to the drawing board", meaning:"to start over with a new idea",
+        contexts:["restart","plan","design","fail","try again","project","rethink"],
+        modelAnswer:"Our first design failed, so it’s back to the drawing board." },
+      { id:"C1_03", level:"C1", text:"bend over backwards", meaning:"to try very hard to help someone",
+        contexts:["help","support","effort","favor","kindness","try hard","assist"],
+        modelAnswer:"She bent over backwards to make her guests comfortable." },
+      { id:"C1_04", level:"C1", text:"cut to the chase", meaning:"get to the point",
+        contexts:["direct","quick","summary","focus","skip","main point","talk"],
+        modelAnswer:"We don’t have much time, so let’s cut to the chase." },
+      { id:"C1_05", level:"C1", text:"don’t count your chickens before they hatch", meaning:"don’t assume success before it happens",
+        contexts:["assume","early","overconfident","expect","plan","future","result"],
+        modelAnswer:"She’s already planning how to spend the prize—don’t count your chickens before they hatch." },
+      { id:"C1_06", level:"C1", text:"get a taste of your own medicine", meaning:"receive the same unpleasant treatment you gave others",
+        contexts:["karma","revenge","consequence","same treatment","payback","fair"],
+        modelAnswer:"He always teases others, but he got a taste of his own medicine." },
+      { id:"C1_07", level:"C1", text:"give someone the cold shoulder", meaning:"ignore someone intentionally",
+        contexts:["ignore","silent","unfriendly","avoid","dismiss","reject"],
+        modelAnswer:"After the argument, she gave him the cold shoulder." },
+      { id:"C1_08", level:"C1", text:"have bigger fish to fry", meaning:"have more important things to do",
+        contexts:["priority","important","urgent","task","focus","time","attention"],
+        modelAnswer:"I can’t attend the party—I have bigger fish to fry." },
+      { id:"C1_09", level:"C1", text:"in the heat of the moment", meaning:"saying or doing something suddenly without thinking",
+        contexts:["sudden","angry","emotional","rash","reaction","spontaneous"],
+        modelAnswer:"He shouted at his boss in the heat of the moment." },
+      { id:"C1_10", level:"C1", text:"know the ropes", meaning:"be familiar with details of how something works",
+        contexts:["experienced","skill","knowledge","expert","understand","process"],
+        modelAnswer:"She knows the ropes after years in the company." },
+      { id:"C1_11", level:"C1", text:"leave someone in the lurch", meaning:"leave someone in a difficult situation",
+        contexts:["abandon","problem","alone","unfair","support","trouble"],
+        modelAnswer:"He left me in the lurch by not showing up for the meeting." },
+      { id:"C1_12", level:"C1", text:"play devil’s advocate", meaning:"argue against something just for the sake of argument",
+        contexts:["argument","debate","opposite","question","challenge","discussion"],
+        modelAnswer:"I don’t disagree, but let me play devil’s advocate for a moment." },
+      { id:"C1_13", level:"C1", text:"put a sock in it", meaning:"to tell someone to be quiet",
+        contexts:["quiet","silence","stop talking","annoyed","rude","interrupt"],
+        modelAnswer:"The movie is starting—put a sock in it!" },
+      { id:"C1_14", level:"C1", text:"sink or swim", meaning:"fail or succeed by your own efforts",
+        contexts:["challenge","alone","effort","survive","risk","success","failure"],
+        modelAnswer:"In this job, it’s sink or swim—you must prove yourself quickly." },
+      { id:"C1_15", level:"C1", text:"sweep under the rug", meaning:"hide something embarrassing",
+        contexts:["hide","cover","ignore","avoid","embarrassing","problem"],
+        modelAnswer:"The company tried to sweep the scandal under the rug." },
+      { id:"C1_16", level:"C1", text:"take it with a grain of salt", meaning:"don’t take it too seriously",
+        contexts:["doubt","not serious","rumor","news","skeptical","caution"],
+        modelAnswer:"He exaggerates a lot, so take his story with a grain of salt." },
+      { id:"C1_17", level:"C1", text:"the writing on the wall", meaning:"clear signs that something bad is going to happen",
+        contexts:["warning","sign","bad","future","predict","doom","expect"],
+        modelAnswer:"When sales dropped, they saw the writing on the wall." },
+      { id:"C1_18", level:"C1", text:"turn a blind eye", meaning:"pretend not to notice something wrong",
+        contexts:["ignore","pretend","corruption","rule-breaking","wrong","silent"],
+        modelAnswer:"The teacher turned a blind eye to the minor mistake." },
+      { id:"C1_19", level:"C1", text:"up in the air", meaning:"undecided or uncertain",
+        contexts:["uncertain","decision","plan","maybe","unknown","unsure","delay"],
+        modelAnswer:"Our holiday plans are still up in the air." },
+      { id:"C1_20", level:"C1", text:"cross that bridge when you come to it", meaning:"deal with a problem when it arises, not before",
+        contexts:["future","later","problem","worry","delay","decision","face"],
+        modelAnswer:"Don’t stress about the test now—we’ll cross that bridge when we come to it." },
+      { id:"C2_01", level:"C2", text:"a feather in one’s cap", meaning:"an achievement to be proud of",
+        contexts:["achievement","success","honor","award","recognition","pride"],
+        modelAnswer:"Winning the research grant was a real feather in her cap." },
+      { id:"C2_02", level:"C2", text:"ahead of the curve", meaning:"more advanced or innovative",
+        contexts:["innovation","advanced","trend","technology","progress","future"],
+        modelAnswer:"That company stays ahead of the curve with new technology." },
+      { id:"C2_03", level:"C2", text:"at the drop of a hat", meaning:"immediately or without delay",
+        contexts:["immediately","sudden","quick","instant","without delay","fast"],
+        modelAnswer:"She’s ready to travel at the drop of a hat." },
+      { id:"C2_04", level:"C2", text:"beating a dead horse", meaning:"to continue doing something pointless",
+        contexts:["pointless","waste","futile","useless","repeat","unnecessary"],
+        modelAnswer:"Arguing about that old rule is like beating a dead horse." },
+      { id:"C2_05", level:"C2", text:"between a rock and a hard place", meaning:"faced with two difficult choices",
+        contexts:["dilemma","difficult","decision","stuck","problem","no choice"],
+        modelAnswer:"She was caught between a rock and a hard place at work." },
+      { id:"C2_06", level:"C2", text:"by and large", meaning:"generally; overall",
+        contexts:["generally","overall","mainly","in general","summary","broadly"],
+        modelAnswer:"By and large, the conference was a great success." },
+      { id:"C2_07", level:"C2", text:"come rain or shine", meaning:"no matter what happens",
+        contexts:["always","regardless","consistent","no matter","promise","dedication"],
+        modelAnswer:"He goes jogging every morning, come rain or shine." },
+      { id:"C2_08", level:"C2", text:"cut the mustard", meaning:"to succeed or meet expectations",
+        contexts:["success","perform","achieve","meet standard","competence"],
+        modelAnswer:"She really cut the mustard in her new management role." },
+      { id:"C2_09", level:"C2", text:"draw a line in the sand", meaning:"to set a limit or boundary",
+        contexts:["limit","boundary","refuse","stop","end","principle"],
+        modelAnswer:"He drew a line in the sand and refused to work weekends." },
+      { id:"C2_10", level:"C2", text:"get down to brass tacks", meaning:"focus on the essential details",
+        contexts:["details","essential","important","discuss","serious","real issue"],
+        modelAnswer:"Let’s get down to brass tacks and finalize the budget." },
+      { id:"C2_11", level:"C2", text:"have an axe to grind", meaning:"have a hidden motive or complaint",
+        contexts:["motive","complaint","hidden","agenda","bias","reason"],
+        modelAnswer:"He seemed helpful, but he clearly had an axe to grind." },
+      { id:"C2_12", level:"C2", text:"in the driver’s seat", meaning:"in control of a situation",
+        contexts:["control","power","decision","lead","authority","manage"],
+        modelAnswer:"With her promotion, she’s now in the driver’s seat." },
+      { id:"C2_13", level:"C2", text:"keep your nose to the grindstone", meaning:"work hard consistently",
+        contexts:["
