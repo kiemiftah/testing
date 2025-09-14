@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>🎤 Idiom Speaking Coach — AI (ASR + Feedback)</title>
+  <style>
+    :root { --primary:#3498db; --primary-dark:#2980b9; --secondary:#2ecc71; --dark:#2c3e50; --light:#ecf0f1; --gray:#95a5a6; }
+    *{box-sizing:border-box}
+    body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f8f9fa;margin:0;color:#333}
+    .container{max-width:960px;margin:0 auto;padding:24px}
+    header{text-align:center;margin:24px 0 12px}
+    h1{font-size:2.2rem;margin:0 0 6px}
+    .sub{color:#6b7280;margin:0}
+    .badge{display:inline-flex;gap:8px;align-items:center;background:#eef6ff;border:1px solid #cfe3ff;color:#1e66b8;padding:6px 10px;border-radius:999px;font-size:.9rem;margin-top:10px}
+    .row{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:880px){.row{grid-template-columns:1.1fr .9fr}}
+    .card{background:#fff;border-radius:16px;box-shadow:0 5px 15px rgba(0,0,0,.08);padding:20px;border:2px solid #f1f5f9}
+    label{font-weight:600;display:block;margin-bottom:6px}
+    select,input[type=text]{width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid #dbe2ea;font-size:1rem}
+    .controls{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .controls .wide{grid-column:span 3}
+    .btn{background:var(--primary);color:#fff;border:none;border-radius:10px;padding:12px 14px;font-size:1rem;cursor:pointer;transition:.2s}
+    .btn:hover{background:var(--primary-dark)}
+    .btn.ghost{background:#f0f4f8;color:#0f172a;border:1px solid #e2e8f0}
+    .inline{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .status{font-size:.95rem;color:#64748b}
+    .meter{height:15px;width:560px;background:#eef2f7;border-radius:999px;overflow:hidden}
+    .meter>span{display:block;height:100%;width:0;background:#22c55e;transition:width .3s}
+    .tag{display:inline-block;padding:4px 8px;border-radius:999px;font-size:.8rem;border:1px solid #e2e8f0;background:#f8fafc;color:#0f172a}
+    .tag.good{border-color:#bbf7d0;background:#ecfdf5;color:#065f46}
+    .tag.mid{border-color:#fde68a;background:#fffbeb;color:#92400e}
+    .tag.bad{border-color:#fecaca;background:#fef2f2;color:#7f1d1d}
+    .muted{color:#6b7280}
+    .transcript{min-height:56px;border:1.5px dashed #dbe2ea;border-radius:10px;padding:10px}
+    footer{text-align:center;color:#94a3b8;margin:28px 0}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎤 Idiom Speaking Coach</h1>
+      <p class="sub">Say a full sentence using the target idiom. The page uses your browser's <strong>speech recognition (ASR)</strong> to transcribe and an <strong>AI rubric</strong> to score usage and give feedback.</p>
+      <div class="badge">AI Mode: On‑device ASR (Web Speech API) + Heuristic Usage Scoring</div>
+    </header>
+
+    <div class="row">
+      <div class="card">
+        <div class="controls">
+          <div>
+            <label for="level">CEFR level</label>
+            <select id="level">
+              <option value="">All levels</option>
+              <option value="A1">A1 Beginner</option>
+              <option value="A2">A2 Elementary</option>
+              <option value="B1">B1 Intermediate</option>
+              <option value="B2">B2 Upper-Intermediate</option>
+              <option value="C1">C1 Advanced</option>
+              <option value="C2">C2 Proficient</option>
+            </select>
+          </div>
+          <div>
+            <label for="idiom">Target idiom</label>
+            <select id="idiom"></select>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button id="randomBtn" class="btn ghost" title="Pick a random idiom">🎲 Random</button>
+          </div>
+          <div class="wide">
+            <label>Prompt</label>
+            <div id="prompt" class="muted">Use the idiom naturally in a complete sentence. Example: "He told a joke to break the ice at the meeting."</div>
+          </div>
+        </div>
+
+        <div class="inline" style="margin-top:12px">
+          <button id="startBtn" class="btn">▶️ Start speaking</button>
+          <button id="stopBtn" class="btn ghost">⏹ Stop</button>
+          <button id="clearBtn" class="btn ghost">🧹 Clear</button>
+          <span id="micStatus" class="status">Mic idle.</span>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>Transcript</label>
+          <div id="transcript" class="transcript muted"></div>
+        </div>
+
+        <div style="margin-top:12px" class="inline">
+          <div>
+            <div class="muted">Score</div>
+            <div class="meter" title="Overall score"><span id="scoreBar"></span></div>
+          </div>
+          <div class="muted">WPM: <span id="wpm">0</span></div>
+          <div class="muted">Confidence: <span id="conf">–</span></div>
+        </div>
+
+        <div id="feedback" style="margin-top:12px"></div>
+        <div class="inline" style="margin-top:12px">
+          <button id="ttsGood" class="btn ghost">🔊 Model answer</button>
+          <button id="retry" class="btn">🔁 Try again</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">How we score (explainable AI)</h3>
+        <div class="muted">
+          <div><strong>Phrase use (60%)</strong>: Did you actually say the idiom (or a close variant)?</div>
+          <div><strong>Context (25%)</strong>: Are there context words that fit the idiom’s meaning?</div>
+          <div><strong>Fluency (10%)</strong>: Sentence length and smooth pace (100–160 wpm ideal).</div>
+          <div><strong>ASR confidence (5%)</strong>: Recognition reliability.</div>
+        </div>
+        <p class="muted">All processing is local to your browser. If recognition doesn’t start, check your mic permissions or try Chrome/Edge desktop (best support).</p>
+        <hr style="border:none;border-top:1px solid #eef2f7;margin:14px 0" />
+        <h4>Return to hub</h4>
+        <button class="btn ghost" onclick="location.href='idiomhomepage.html'">← Idiom Games Hub</button>
+      </div>
+    </div>
+
+    <footer>
+      Created by Affiq Azlan • Faculty of Language Studies and Human Development • Universiti Malaysia Kelantan
+    </footer>
+  </div>
+
+  <script>
+    // ---------- Idiom data ----------
+    // NOTE: For brevity here is a small demo set. Replace with your full BANK list.
+    const BANK = [
+      { id:"A1_01", level:"A1", text:"hit the books", meaning:"study very hard",
+        contexts:["study","exam","test","library","revising","homework","deadline","university","school"],
+        modelAnswer:"Finals are next week, so I have to hit the books tonight." },
+      { id:"A1_02", level:"A1", text:"under the weather", meaning:"feeling sick",
+        contexts:["ill","flu","cold","fever","rest","doctor","stay home","sick day"],
+        modelAnswer:"I’m a bit under the weather today, so I’ll skip the meeting." },
+      { id:"A1_03", level:"A1", text:"a piece of cake", meaning:"very easy",
+        contexts:["easy","simple","test","task","homework","quiz","beginner","basic"],
+        modelAnswer:"That math quiz was a piece of cake for me." },
+      { id:"A2_01", level:"A2", text:"let the cat out of the bag", meaning:"reveal a secret",
+        contexts:["secret","surprise","accidentally","reveal","confess","birthday","plan","truth","spill"],
+        modelAnswer:"Mira let the cat out of the bag and told him about the surprise trip." }
+    ];
+
+    // ---------- Populate dropdowns ----------
+    const levelSel = document.getElementById('level');
+    const idiomSel  = document.getElementById('idiom');
+    const transcriptDiv = document.getElementById('transcript');
+    const micStatus = document.getElementById('micStatus');
+    const scoreBar = document.getElementById('scoreBar');
+    const feedback = document.getElementById('feedback');
+    const wpmSpan = document.getElementById('wpm');
+    const confSpan = document.getElementById('conf');
+    const promptDiv = document.getElementById('prompt');
+
+    function refreshIdioms(){
+      const lvl = levelSel.value;
+      idiomSel.innerHTML = '';
+      (lvl? BANK.filter(x=>x.level===lvl) : BANK).forEach(it=>{
+        const opt = document.createElement('option');
+        opt.value = it.id; opt.textContent = `${it.text} (${it.level})`;
+        idiomSel.appendChild(opt);
+      });
+      if (!idiomSel.value && idiomSel.options.length) idiomSel.selectedIndex = 0;
+      updatePrompt();
+    }
+    levelSel.addEventListener('change', refreshIdioms);
+    function updatePrompt(){
+      const it = BANK.find(x=>x.id===idiomSel.value) || BANK[0];
+      if (!it) return;
+      promptDiv.textContent = `Speak a full sentence using “${it.text}” (meaning: ${it.meaning}).`;
+    }
+    idiomSel.addEventListener('change', updatePrompt);
+    document.getElementById('randomBtn').onclick = ()=>{
+      const pool = levelSel.value ? BANK.filter(x=>x.level===levelSel.value) : BANK;
+      if (!pool.length) return;
+      const it = pool[Math.floor(Math.random()*pool.length)];
+      idiomSel.value = it.id; updatePrompt();
+    };
+    refreshIdioms();
+
+    // ---------- Speech recognition (iOS-safe, no duplicates, no "idle" loop) ----------
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isStandalonePWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+    const isInApp = /(FBAN|FBAV|Instagram|Line|Twitter|TikTok|WhatsApp|Messenger|WeChat|VK|Snapchat|Pinterest|GSA\/|DuckDuckGo)/i.test(navigator.userAgent) && !window.chrome;
+
+    let rec = null;
+    let isListening = false;
+    let wantListening = false;
+    let finalTranscript = '';
+    let lastConfidence = null;
+    let startTime = 0;
+
+    function unsupported(msg){
+      micStatus.textContent = msg || 'Not supported here';
+      feedback.innerHTML = '<p class="muted">Your browser blocks or lacks the Web Speech API. Open in <strong>Safari</strong> on iPhone/iPad (not in-app, not “Add to Home Screen”) or use Chrome on Android/desktop.</p>';
+      document.getElementById('startBtn').disabled = true;
+    }
+
+    function startASR(){
+      if (!SR){ unsupported(); return; }
+      if (isiOS && (isStandalonePWA || isInApp)){
+        unsupported('Open in Safari (not in-app / not Home Screen)');
+        return;
+      }
+      if (isListening){ return; } // prevent double instances
+
+      wantListening = true;
+      rec = new SR();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = !isiOS; // iOS behaves better with continuous=false
+
+      // Reset UI/session
+      finalTranscript = '';
+      lastConfidence = null;
+      transcriptDiv.textContent = '';
+      feedback.innerHTML = '';
+      scoreBar.style.width = '0%';
+      wpmSpan.textContent = '0';
+      confSpan.textContent = '–';
+      startTime = Date.now();
+
+      rec.onstart = () => {
+        isListening = true;
+        micStatus.textContent = 'Listening… speak now.';
+      };
+
+      rec.onresult = (e) => {
+        let interim = '';
+        // Process only new results to avoid duplicates
+        for (let i = e.resultIndex; i < e.results.length; i++){
+          const res = e.results[i];
+          const txt = res[0].transcript;
+          if (res.isFinal){
+            finalTranscript += txt + ' ';
+            lastConfidence = res[0].confidence;
+          } else {
+            interim += txt;
+          }
+        }
+        const all = (finalTranscript + interim).replace(/\s+/g,' ').trim();
+        transcriptDiv.textContent = all;
+
+        const words = all ? all.split(/\s+/).length : 0;
+        const mins = (Date.now() - startTime)/60000;
+        wpmSpan.textContent = mins>0 ? Math.round(words/Math.max(mins, 1/60)) : 0;
+        confSpan.textContent = lastConfidence==null ? '–' : Math.round(lastConfidence*100)+'%';
+      };
+
+      rec.onerror = (e) => {
+        let hint = '';
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+          hint = isiOS
+            ? ' Open in Safari (not an in-app browser) and allow Microphone in Settings ▸ Safari. Avoid “Add to Home Screen”.'
+            : ' Check site microphone permission in your browser settings.';
+          wantListening = false; // stop auto-restart loop
+        } else if (e.error === 'no-speech'){
+          hint = ' No speech detected. Try closer to the mic.';
+        } else if (e.error === 'audio-capture'){
+          hint = ' Microphone unavailable or permission denied.';
+          wantListening = false;
+        }
+        micStatus.textContent = 'ASR error: ' + e.error + (hint ? ' —' + hint : '');
+      };
+
+      rec.onend = () => {
+        isListening = false;
+        if (wantListening && !isiOS){
+          // On desktop/Android, keep listening seamlessly
+          try {
+            rec.start();
+            micStatus.textContent = 'Listening…';
+            isListening = true;
+            return;
+          } catch(_) {}
+        }
+        micStatus.textContent = 'Mic stopped.';
+      };
+
+      try { rec.start(); }
+      catch(err){
+        micStatus.textContent = 'Could not start mic: ' + (err && err.message ? err.message : String(err));
+      }
+    }
+
+    function stopASR(){
+      wantListening = false;
+      if (rec){
+        try { rec.stop(); } catch(_) {}
+      }
+    }
+
+    document.getElementById('startBtn').onclick = startASR;
+    document.getElementById('stopBtn').onclick  = ()=>{ stopASR(); scoreNow(); };
+    document.getElementById('clearBtn').onclick = ()=>{
+      stopASR();
+      finalTranscript = '';
+      transcriptDiv.textContent='';
+      feedback.innerHTML='';
+      scoreBar.style.width='0%';
+      micStatus.textContent = 'Mic idle.';
+      document.getElementById('startBtn').disabled = false;
+    };
+    document.getElementById('retry').onclick    = ()=>{ stopASR(); finalTranscript=''; startASR(); };
+
+    // Stop ASR when tab is hidden (prevents odd iOS errors)
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stopASR(); });
+
+    // ---------- Scoring ----------
+    function norm(s){ return (s||'').toLowerCase().replace(/[^a-z\s']/g,' ').replace(/\s+/g,' ').trim(); }
+
+    function scoreNow(){
+      const txt = transcriptDiv.textContent.trim();
+      if (!txt){
+        feedback.innerHTML = '<p class="muted">No speech captured. Click Start speaking.</p>';
+        return;
+      }
+      const it = BANK.find(x=>x.id===idiomSel.value) || BANK[0];
+      const n = norm(txt) || '';
+
+      const phrase = norm(it.text);
+      let phraseOK = phrase && n.includes(phrase);
+      if (!phraseOK && phrase){
+        const flexible = new RegExp(phrase.split(' ').join("\\s+"));
+        phraseOK = flexible.test(n);
+      }
+
+      const ctxHits = (it.contexts||[]).filter(k => n.includes(k)).length;
+      const ctxScore = Math.min(1, ctxHits / Math.max(3, (it.contexts||[]).length/2));
+
+      const wordCount = txt.split(/\s+/).filter(Boolean).length;
+      const pace = parseInt(wpmSpan.textContent)||0;
+      let fluency = 0;
+      if (wordCount >= 7) fluency += 0.5;
+      if (pace>=90 && pace<=170) fluency += 0.5;
+
+      const conf = lastConfidence==null ? 0.6 : Math.max(0, Math.min(1, lastConfidence));
+
+      const total = 0.60*(phraseOK?1:0) + 0.25*ctxScore + 0.10*fluency + 0.05*conf;
+      scoreBar.style.width = Math.round(total*100)+'%';
+
+      let label, tagClass;
+      if (total>=0.8){ label='Excellent'; tagClass='good'; }
+      else if (total>=0.6){ label='Good'; tagClass='good'; }
+      else if (total>=0.4){ label='Almost there'; tagClass='mid'; }
+      else { label='Try again'; tagClass='bad'; }
+
+      const tips = [];
+      if (!phraseOK) tips.push(`Say the idiom clearly as a fixed phrase: “${it.text}”.`);
+      if (ctxScore<0.6) tips.push(`Add context words that fit the meaning: e.g., ${(it.contexts||[]).slice(0,5).join(', ')}…`);
+      if (fluency<1) tips.push('Use a complete sentence and keep a steady pace.');
+
+      feedback.innerHTML = `
+        <div class="card" style="margin-top:8px">
+          <div class="inline" style="justify-content:space-between">
+            <div><strong>Result:</strong> <span class="tag ${tagClass}">${label}</span></div>
+            <div class="muted">Target: “${it.text}”</div>
+          </div>
+          <ol class="muted" style="margin-top:8px">
+            <li><strong>Phrase</strong>: ${phraseOK? '✅ used' : '❌ not detected'}</li>
+            <li><strong>Context</strong>: ${ctxHits} keyword(s)</li>
+            <li><strong>Fluency</strong>: ${wordCount} words, ${pace} wpm</li>
+            <li><strong>ASR confidence</strong>: ${Math.round(conf*100)}%</li>
+          </ol>
+          ${tips.length? `<div class="muted"><strong>Tip:</strong> ${tips.join(' ')}</div>`:''}
+        </div>`;
+    }
+
+    // ---------- TTS model answer ----------
+    document.getElementById('ttsGood').onclick = ()=>{
+      const it = BANK.find(x=>x.id===idiomSel.value) || BANK[0];
+      if (!it) return;
+      const u = new SpeechSynthesisUtterance(it.modelAnswer);
+      u.lang = 'en-US';
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    };
+  </script>
+</body>
+</html>
