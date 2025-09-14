@@ -1,0 +1,202 @@
+# Create a fully self-contained HTML + JS snippet as a .txt file with iOS-safe ASR handling
+content = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IdiomSpeak – ASR (iOS-safe)</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    body { margin: 0; padding: 24px; background: #0b1220; color: #e9eef7; }
+    .wrap { max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    .hint { color: #9fb2d8; font-size: .95rem; margin-bottom: 16px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    button {
+      border: 0; padding: 10px 14px; border-radius: 12px; cursor: pointer; font-weight: 600;
+      background: #1f2a44; color: #e9eef7; transition: .2s transform ease, .2s background ease;
+    }
+    button:hover { transform: translateY(-1px); background: #29365a; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .pill { padding: 6px 10px; border-radius: 999px; background: #11203a; color: #b5c6ef; }
+    .meter { height: 10px; border-radius: 999px; background: #1b2742; overflow: hidden; }
+    .meter > span { display: block; height: 100%; width: 0%; background: linear-gradient(90deg,#62b1ff,#2df0c2); transition: width .25s ease; }
+    .card {
+      background: #0f1a30; border: 1px solid #1a2746; border-radius: 16px; padding: 16px; 
+      box-shadow: 0 8px 20px rgba(0,0,0,.25);
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .transcript { min-height: 88px; white-space: pre-wrap; }
+    .badge { background: #25365f; padding: 4px 8px; border-radius: 999px; font-size: .85rem; }
+    a { color: #7fc8ff; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>IdiomSpeak – Speech to Text (Web Speech API)</h1>
+    <div class="hint">
+      Mobile note: Open in <strong>Safari</strong> on iPhone/iPad (not in-app browsers). Allow mic in Settings → Safari → Microphone.
+    </div>
+
+    <div class="row" style="margin-bottom:12px;">
+      <button id="startBtn">Start speaking</button>
+      <button id="stopBtn">Stop</button>
+      <button id="clearBtn">Clear</button>
+      <button id="retry">Retry</button>
+      <span id="micStatus" class="pill">Idle</span>
+    </div>
+
+    <div class="card" style="margin-bottom:12px;">
+      <div class="row" style="justify-content: space-between;">
+        <div>Words/min: <span id="wpm" class="badge">0</span></div>
+        <div>Last confidence: <span id="conf" class="badge">–</span></div>
+      </div>
+      <div class="meter" style="margin-top:10px;"><span id="scoreBar"></span></div>
+    </div>
+
+    <div class="card">
+      <div class="mono transcript" id="transcriptDiv" aria-live="polite"></div>
+      <div id="feedback" style="margin-top:10px; color:#b7ffea;"></div>
+    </div>
+
+    <p class="hint" style="margin-top:16px;">
+      If you consistently see <em>service-not-allowed</em> on iPhone, ensure you are not using “Add to Home Screen” or an in-app browser (e.g., from social apps). Open this page in a normal Safari tab.
+    </p>
+  </div>
+
+  <script>
+    // --------- Guard: API feature detect
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isStandalonePWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+
+    const transcriptDiv = document.getElementById('transcriptDiv');
+    const feedback = document.getElementById('feedback');
+    const scoreBar = document.getElementById('scoreBar');
+    const wpmSpan = document.getElementById('wpm');
+    const confSpan = document.getElementById('conf');
+    const micStatus = document.getElementById('micStatus');
+
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn  = document.getElementById('stopBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const retryBtn = document.getElementById('retry');
+
+    if (!SR) {
+      micStatus.textContent = 'Not supported here';
+      feedback.innerHTML = 'Your browser does not support the Web Speech API. Try Chrome (Android/desktop) or Safari (iOS).';
+      startBtn.disabled = true;
+    } else if (isiOS && isStandalonePWA) {
+      // iOS disables SpeechRecognition in home-screen PWAs
+      micStatus.textContent = 'Unsupported in PWA';
+      feedback.innerHTML = 'Open this page in Safari (not from the Home Screen). iOS PWAs block speech recognition.';
+      startBtn.disabled = true;
+    }
+
+    // --------- Recognition state
+    let rec = null;
+    let isListening = false, startTime = 0, lastConfidence = null;
+    let finalTranscript = '';
+
+    function startASR(){
+      if (!SR || (isiOS && isStandalonePWA)) return;
+      if (isListening) return; // prevent double instances
+
+      rec = new SR();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = !isiOS;    // iOS behaves better with continuous = false
+
+      // Reset UI/session state
+      finalTranscript = '';
+      lastConfidence = null;
+      transcriptDiv.textContent = '';
+      feedback.innerHTML = '';
+      scoreBar.style.width = '0%';
+      wpmSpan.textContent = '0';
+      confSpan.textContent = '–';
+      startTime = Date.now();
+
+      rec.onstart = () => {
+        isListening = true;
+        micStatus.textContent = 'Listening… speak now.';
+      };
+
+      rec.onresult = (e) => {
+        // Only handle new results to avoid duplication
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++){
+          const res = e.results[i];
+          const txt = res[0].transcript;
+          if (res.isFinal){
+            finalTranscript += txt + ' ';
+            lastConfidence = res[0].confidence;
+          } else {
+            interim += txt;
+          }
+        }
+        const all = (finalTranscript + interim).replace(/\s+/g,' ').trim();
+        transcriptDiv.textContent = all;
+
+        const words = all ? all.split(/\s+/).length : 0;
+        const mins = (Date.now() - startTime) / 60000;
+        wpmSpan.textContent = mins > 0 ? Math.round(words / Math.max(mins, 1/60)) : 0;
+        confSpan.textContent = lastConfidence == null ? '–' : Math.round(lastConfidence * 100) + '%';
+      };
+
+      rec.onerror = (e) => {
+        let hint = '';
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+          hint = isiOS
+            ? ' Open in Safari (not an in-app browser), then allow Microphone in Settings ▸ Safari. Avoid “Add to Home Screen”.'
+            : ' Check site microphone permission in your browser settings.';
+        } else if (e.error === 'no-speech'){
+          hint = ' No speech detected. Try speaking closer to the mic.';
+        } else if (e.error === 'audio-capture'){
+          hint = ' Microphone not available or permission denied.';
+        }
+        micStatus.textContent = 'ASR error: ' + e.error + (hint ? ' —' + hint : '');
+      };
+
+      rec.onend = () => {
+        isListening = false;
+        micStatus.textContent = 'Mic stopped.';
+      };
+
+      rec.start();
+    }
+
+    function stopASR(){
+      if (rec){ try { rec.stop(); } catch(_){} }
+    }
+
+    // Simple scoring stub so the page never errors; replace with your own logic
+    function scoreNow(text){
+      const len = (text || '').trim().length;
+      const score = Math.max(0, Math.min(100, Math.round(len / 4))); // naive: ~4 chars ≈ 1%
+      scoreBar.style.width = score + '%';
+      feedback.textContent = len ? ('Provisional score: ' + score + '% (demo)') : 'No transcript to score.';
+    }
+
+    // Wire up controls
+    startBtn.addEventListener('click', startASR);
+    stopBtn.addEventListener('click', () => { stopASR(); scoreNow(finalTranscript || transcriptDiv.textContent); });
+    clearBtn.addEventListener('click', () => {
+      stopASR();
+      finalTranscript = '';
+      transcriptDiv.textContent = '';
+      feedback.innerHTML = '';
+      scoreBar.style.width = '0%';
+      micStatus.textContent = 'Cleared.';
+    });
+    retryBtn.addEventListener('click', () => { stopASR(); finalTranscript = ''; startASR(); });
+
+    // Optional: stop when tab goes to background (prevents odd iOS errors)
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stopASR(); });
+  </script>
+</body>
+</html>
+"""
+with open('/mnt/data/idiomspeak_fixed.txt', 'w', encoding='utf-8') as f:
+    f.write(content)
+print("File saved to /mnt/data/idiomspeak_fixed.txt")
